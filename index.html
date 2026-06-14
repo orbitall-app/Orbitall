@@ -35,7 +35,7 @@
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-html{background:var(--bg)}
+html{background:var(--bg);-webkit-text-size-adjust:100%;text-size-adjust:100%}
 body{
   background:var(--bg);color:var(--text);
   font-family:var(--font);
@@ -169,6 +169,20 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 16px
   color:var(--text);border-radius:var(--r-sm);padding:10px;font-size:13px;
   font-family:var(--mono);resize:vertical;
 }
+.details-field{ margin:6px 0 4px; }
+.preset-swatch{
+  width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.25);
+  cursor:pointer;padding:0;flex:0 0 auto;
+}
+.del-cust{
+  background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;
+  padding:4px 6px;margin-left:auto;
+}
+.details-field::placeholder{white-space:normal;font-size:16px}
+.item-details{
+  font-size:12px;color:var(--muted);margin-top:4px;line-height:1.4;
+  white-space:pre-wrap;word-break:break-word;
+}
 
 /* ---- Tasks tab ---- */
 .task-row{
@@ -258,7 +272,14 @@ input[type=date],input[type=time]{min-height:44px}
 .hidden{display:none!important}
 
 /* ---- color picker ---- */
-.color-row{display:flex;gap:6px;margin-top:4px}
+.color-row{
+  display:flex;gap:6px;margin-top:4px;
+  overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+  scroll-snap-type:x proximity;padding-bottom:4px;
+  scrollbar-width:none;
+}
+.color-row::-webkit-scrollbar{display:none}
+.cdot-wrap{scroll-snap-align:start}
 .cdot-wrap{
   background:none;border:none;display:flex;flex-direction:column;align-items:center;
   gap:3px;cursor:pointer;padding:0;width:42px;flex:none;
@@ -686,6 +707,8 @@ body[data-style=paper] .qa-input{background-image:none}
           <input type="date" id="recEnd">
         </div>
       </div>
+      <label for="recDetails">Details (optional)</label>
+      <input type="text" id="recDetails" class="details-field" placeholder="Details (optional)">
       <button class="btn" id="recAddBtn">Add recurring</button>
       <button class="btn ghost hidden" id="recCancelBtn">Cancel editing</button>
     </div>
@@ -733,9 +756,9 @@ body[data-style=paper] .qa-input{background-image:none}
       </button>
     </div>
     <div class="card">
-      <div class="section-label" style="margin-top:0">Color labels</div>
-      <p class="empty-note" style="padding-top:0">Name your colors so the filter bar means something — e.g. red becomes "Bills".</p>
-      <div id="colorNameRows"></div>
+      <button class="btn ghost" id="openColorsBtn" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+        <span>🎨 Color labels &amp; custom colors</span><span style="color:var(--muted)">›</span>
+      </button>
     </div>
     <div class="card">
       <div class="section-label" style="margin-top:0">Backup &amp; restore</div>
@@ -755,6 +778,23 @@ body[data-style=paper] .qa-input{background-image:none}
   <div class="page" id="page-themes">
     <button class="btn ghost" id="themesBack" style="margin:4px 0 12px">‹ Back to settings</button>
     <div id="themeRow"></div>
+  </div>
+  <!-- ============ COLORS PAGE ============ -->
+  <div class="page" id="page-colors">
+    <button class="btn ghost" id="colorsBack" style="margin:4px 0 12px">‹ Back to settings</button>
+    <div class="card">
+      <div class="section-label" style="margin-top:0">Color labels</div>
+      <p class="empty-note" style="padding-top:0">Name your colors so the filter bar means something — e.g. red becomes "Bills".</p>
+      <div id="colorNameRows"></div>
+      <div class="section-label">Custom colors</div>
+      <p class="empty-note" style="padding-top:0">Add your own colors — pick any shade with the wheel or a quick preset.</p>
+      <div id="customColorRows"></div>
+      <div id="customAddArea" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input type="color" id="customColorInput" value="#e0b15a" style="width:46px;height:40px;padding:2px;border-radius:var(--r-sm);border:var(--bw) var(--bstyle) var(--line);background:var(--surface2)">
+        <button class="btn teal" id="customAddBtn" style="margin-top:0;flex:1">+ Add this color</button>
+      </div>
+      <div class="filter-bar" id="customPresets" style="margin-top:10px"></div>
+    </div>
   </div>
 </main>
 
@@ -780,6 +820,7 @@ body[data-style=paper] .qa-input{background-image:none}
     <input type="time" id="sheetTime" aria-label="Time (optional)">
     <button id="sheetAddBtn">Add</button>
   </div>
+  <input type="text" id="sheetDetails" class="details-field" placeholder="Details (optional)">
   <div class="color-row" id="sheetColorRow"></div>
   <button class="cancel-edit hidden" id="sheetCancelBtn">Cancel editing</button>
 </div>
@@ -989,7 +1030,13 @@ const CREATIVE_THEMES = {
 const DEFAULT_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
 const COLOR_NAMES = {rec:'Recurring', one:'One-time', red:'Red', orange:'Orange',
                      green:'Green', blue:'Blue', purple:'Purple', pink:'Pink'};
-const PICKABLE = ['red','orange','green','blue','purple','pink'];
+const BASE_PICKABLE = ['red','orange','green','blue','purple','pink'];
+/* custom colors live in data.customColors: [{key, hex, name}] */
+function customList(){ return Array.isArray(data.customColors) ? data.customColors : []; }
+function pickableKeys(){ return BASE_PICKABLE.concat(customList().map(c=>c.key)); }
+/* kept as a getter-like function so all old references to PICKABLE still work */
+Object.defineProperty(window, 'PICKABLE', { get: pickableKeys });
+function customHex(key){ const c = customList().find(c=>c.key===key); return c ? c.hex : null; }
 
 let data = load();
 let view = startOfToday();
@@ -1014,6 +1061,7 @@ function load(){
         if(!Array.isArray(d.notes)) d.notes = [];
         if(!Array.isArray(d.done)) d.done = [];
         if(!d.colorNames || typeof d.colorNames!=='object') d.colorNames = {};
+        if(!Array.isArray(d.customColors)) d.customColors = [];
         if(!('theme' in d)) d.theme = 'dark';
         if(d.theme==='white') d.theme = 'light';   // white merged into light
         if(d.theme==='gameboy') d.theme = 'sunset';  // gameboy retired
@@ -1027,7 +1075,7 @@ function load(){
       }
     }
   }catch(e){}
-  return {oneOffs:[], recurring:[], spans:[], notes:[], done:[], colorNames:{},
+  return {oneOffs:[], recurring:[], spans:[], notes:[], done:[], colorNames:{}, customColors:[],
           theme:'dark', themeHue:null, lastBackup:null, nudgeSnooze:null,
           showHolidays:false, hiddenColors:[], dueOpen:false};
 }
@@ -1049,7 +1097,8 @@ function applyTheme(){
   }else{
     t = THEMES[data.theme] || THEMES.dark;
   }
-  COLORS = t.mode==='light' ? PALETTES.light : PALETTES.dark;
+  COLORS = Object.assign({}, t.mode==='light' ? PALETTES.light : PALETTES.dark);
+  for(const c of customList()) COLORS[c.key] = c.hex;   // custom colors use their exact hex in every theme
   const r = document.documentElement.style;
   r.setProperty('--bg', t.bg);
   r.setProperty('--surface', t.surface);
@@ -1072,6 +1121,8 @@ function applyTheme(){
   document.body.classList.toggle('glassy', !!t.glass);
 }
 function colorName(key){
+  const c = customList().find(c=>c.key===key);
+  if(c) return (data.colorNames && data.colorNames[key]) || c.name || key;
   return (data.colorNames && data.colorNames[key]) || COLOR_NAMES[key] || key;
 }
 
@@ -1894,6 +1945,8 @@ document.getElementById('recAddBtn').onclick = ()=>{
   if(!isNaN(amt) && amt > 0) vals.amount = amt;
   if(recTime.value) vals.time = recTime.value;
   if(recEnd.value)  vals.end = recEnd.value;
+  const recDet = document.getElementById('recDetails').value.trim();
+  if(recDet) vals.details = recDet.slice(0,2000);
   if(recColorSel)   vals.color = recColorSel;
   if(editingId){
     const i = data.recurring.findIndex(x=>x.id===editingId);
@@ -1911,6 +1964,7 @@ document.getElementById('recAddBtn').onclick = ()=>{
 function clearRecForm(){
   document.getElementById('recTitle').value = '';
   recAmount.value = ''; recTime.value = ''; recEnd.value = ''; recAnchor.value = '';
+  document.getElementById('recDetails').value = '';
   recColorSel = null;
   buildColorRow(recColorRow, null);
 }
@@ -1930,6 +1984,7 @@ function startEditing(r){
   recAmount.value = r.amount != null ? String(r.amount) : '';
   recTime.value = r.time || '';
   recEnd.value = r.end || '';
+  document.getElementById('recDetails').value = r.details || '';
   recColorSel = r.color || null;
   buildColorRow(recColorRow, recColorSel);
   document.getElementById('recAddBtn').textContent = 'Save changes';
@@ -1972,11 +2027,28 @@ function renderSettings(){
   tr.innerHTML = html;
   /* color name inputs */
   const cn = document.getElementById('colorNameRows');
-  cn.innerHTML = PICKABLE.map(k=>
+  cn.innerHTML = BASE_PICKABLE.map(k=>
     '<div class="cname-row">'+
     '<span class="pdot" style="background:'+COLORS[k]+'"></span>'+
-    '<input type="text" data-ck="'+k+'" value="'+esc(colorName(k))+'" maxlength="14" placeholder="'+COLOR_NAMES[k]+'">'+
+    '<input type="text" data-ck="'+k+'" value="'+esc(colorName(k))+'" maxlength="14" placeholder="'+esc(COLOR_NAMES[k]||colorName(k))+'">'+
     '</div>').join('');
+  renderCustomColors();
+}
+function renderCustomColors(){
+  const box = document.getElementById('customColorRows');
+  if(!box) return;
+  const list = customList();
+  box.innerHTML = list.length ? list.map(c=>
+    '<div class="cname-row">'+
+    '<span class="pdot" style="background:'+c.hex+'"></span>'+
+    '<input type="text" data-cust="'+c.key+'" value="'+esc(colorName(c.key))+'" maxlength="14" placeholder="'+esc(c.name)+'">'+
+    '<button class="del-cust" data-del="'+c.key+'" aria-label="Delete color">✕</button>'+
+    '</div>').join('') : '';
+  /* quick presets */
+  const presets = ['#e0556b','#e8823c','#e0b15a','#6cc070','#46a0d8','#7d6ce0','#c862b0','#3aa89a','#9a9a9a','#2c3550'];
+  document.getElementById('customPresets').innerHTML = presets.map(h=>
+    '<button class="preset-swatch" data-preset="'+h+'" style="background:'+h+'" aria-label="Use '+h+'"></button>'
+  ).join('');
 }
 document.getElementById('themeRow').addEventListener('click', e=>{
   const p = e.target.closest('.tpill');
@@ -2003,10 +2075,83 @@ document.getElementById('colorNameRows').addEventListener('change', e=>{
   buildColorRow(qaColorRow, qaColorSel);
   toast('✓ Saved');
 });
+/* ---- custom colors ---- */
+function addCustomColor(hex){
+  if(!data.customColors) data.customColors = [];
+  if(data.customColors.length >= 12){ toast('That\'s plenty of colors!'); return; }
+  /* find next free custom number */
+  let n = 1;
+  const used = new Set(data.customColors.map(c=>c.key));
+  while(used.has('cust'+n)) n++;
+  const key = 'cust'+n;
+  data.customColors.push({key, hex, name:'Custom '+n});
+  save();
+  applyTheme();          // merge new hex into COLORS
+  renderCustomColors();
+  document.getElementById('colorNameRows') && renderSettings();
+  buildColorRow(recColorRow, recColorSel);
+  buildColorRow(sheetColorRow, sheetColorSel);
+  buildColorRow(qaColorRow, qaColorSel);
+  renderFilterBar();
+  toast('✓ Added a color');
+}
+document.getElementById('customAddBtn').onclick = ()=>{
+  addCustomColor(document.getElementById('customColorInput').value || '#e0b15a');
+};
+document.getElementById('customPresets').addEventListener('click', e=>{
+  const sw = e.target.closest('[data-preset]');
+  if(!sw) return;
+  document.getElementById('customColorInput').value = sw.dataset.preset;
+  addCustomColor(sw.dataset.preset);
+});
+document.getElementById('customColorRows').addEventListener('change', e=>{
+  const inp = e.target.closest('input[data-cust]');
+  if(!inp) return;
+  const k = inp.dataset.cust;
+  const v = inp.value.trim();
+  const c = customList().find(c=>c.key===k);
+  if(c){
+    if(v) { c.name = v; if(data.colorNames) delete data.colorNames[k]; }
+  }
+  save();
+  renderFilterBar();
+  buildColorRow(recColorRow, recColorSel);
+  buildColorRow(sheetColorRow, sheetColorSel);
+  buildColorRow(qaColorRow, qaColorSel);
+  toast('✓ Saved');
+});
+document.getElementById('customColorRows').addEventListener('click', e=>{
+  const del = e.target.closest('[data-del]');
+  if(!del) return;
+  const k = del.dataset.del;
+  deleteCustomColor(k);
+});
+function deleteCustomColor(k){
+  const c = customList().find(c=>c.key===k);
+  if(!c) return;
+  const nm = colorName(k);
+  data.customColors = customList().filter(c=>c.key!==k);
+  if(data.colorNames) delete data.colorNames[k];
+  /* strip the color from any items using it */
+  for(const o of data.oneOffs) if(o.color===k) delete o.color;
+  for(const r of data.recurring) if(r.color===k) delete r.color;
+  for(const sp of data.spans) if(sp.color===k) delete sp.color;
+  if(data.hiddenColors) data.hiddenColors = data.hiddenColors.filter(x=>x!==k);
+  save();
+  applyTheme();
+  renderCustomColors(); renderSettings();
+  buildColorRow(recColorRow, recColorSel);
+  buildColorRow(sheetColorRow, sheetColorSel);
+  buildColorRow(qaColorRow, qaColorSel);
+  renderFilterBar(); renderAll();
+  toast('Removed "'+nm+'"');
+}
 document.getElementById('settingsBtn').onclick = ()=>{ renderSettings(); switchTab('settings'); };
 document.getElementById('settingsDone').onclick = ()=> switchTab('cal');
 document.getElementById('openThemesBtn').onclick = ()=>{ renderSettings(); switchTab('themes'); };
 document.getElementById('themesBack').onclick = ()=> switchTab('settings');
+document.getElementById('openColorsBtn').onclick = ()=>{ renderSettings(); switchTab('colors'); };
+document.getElementById('colorsBack').onclick = ()=> switchTab('settings');
 
 /* ============================================================
    QUICK ADD — natural language parser (fully offline)
@@ -2315,10 +2460,11 @@ function renderSheetItems(){
     const lead = isSpan
       ? '<span class="chk-space"></span>'
       : '<button class="chk'+(done?' done':'')+'" data-id="'+it.ref.id+'" aria-label="Mark done">✓</button>';
+    const det = it.ref.details ? '<div class="item-details">'+esc(it.ref.details)+'</div>' : '';
     return '<div class="item'+(done?' done':'')+'" data-kind="'+it.kind+'" data-id="'+it.ref.id+'">'+
       lead+
       '<span class="dot" style="background:'+COLORS[colorKey(it)]+'"></span>'+
-      '<span class="nm">'+esc(it.title)+tm+amt+'</span>'+
+      '<span class="nm">'+esc(it.title)+tm+amt+det+'</span>'+
       '<span class="kind">'+kind+'</span>'+
       '<button class="del" data-kind="'+it.kind+'" data-id="'+it.ref.id+'">✕</button>'+
       '</div>';
@@ -2377,6 +2523,7 @@ function startSheetEdit(o, kind){
   sheetEditKind = kind || 'one';
   sheetInput.value = o.title;
   sheetTime.value = o.time || '';
+  document.getElementById('sheetDetails').value = o.details || '';
   sheetColorSel = o.color || null;
   buildColorRow(sheetColorRow, sheetColorSel);
   sheetAddBtn.textContent = 'Save';
@@ -2385,12 +2532,14 @@ function startSheetEdit(o, kind){
 sheetAddBtn.onclick = ()=>{
   const title = sheetInput.value.trim();
   if(!title){ toast('Type something first'); return; }
+  const details = document.getElementById('sheetDetails').value.trim();
   if(sheetEditId){
     const list = sheetEditKind==='span' ? data.spans : data.oneOffs;
     const o = list.find(x=>x.id===sheetEditId);
     if(o){
       o.title = title;
       if(sheetTime.value) o.time = sheetTime.value; else delete o.time;
+      if(details) o.details = details.slice(0,2000); else delete o.details;
       if(sheetColorSel) o.color = sheetColorSel; else delete o.color;
     }
     stopSheetEdit();
@@ -2398,9 +2547,11 @@ sheetAddBtn.onclick = ()=>{
   }else{
     const o = {id:uid(), date:ymd(sheetDate), title};
     if(sheetTime.value) o.time = sheetTime.value;
+    if(details) o.details = details.slice(0,2000);
     if(sheetColorSel) o.color = sheetColorSel;
     data.oneOffs.push(o);
     sheetInput.value=''; sheetTime.value='';
+    document.getElementById('sheetDetails').value='';
     sheetColorSel = null;
     buildColorRow(sheetColorRow, null);
   }
@@ -2413,6 +2564,7 @@ function stopSheetEdit(){
   sheetEditId = null;
   sheetEditKind = 'one';
   sheetInput.value=''; sheetTime.value='';
+  document.getElementById('sheetDetails').value='';
   sheetColorSel = null;
   buildColorRow(sheetColorRow, null);
   sheetAddBtn.textContent = 'Add';
@@ -2548,12 +2700,14 @@ document.getElementById('shareConfirmBtn').onclick = ()=>{
         spanIds.add(it.ref.id);
         const sp = {t:'span', start:it.ref.start, end:it.ref.end, title:it.ref.title};
         if(it.ref.time) sp.time = it.ref.time;
+        if(it.ref.details) sp.details = it.ref.details;
         if(it.ref.color) sp.color = it.ref.color;
         items.push({data:sp, key: it.ref.color || 'span'});
       }else{
         /* one-offs as-is; recurring occurrences become dated items */
         const o = {t:'one', date:key, title:it.ref.title};
         if(it.ref.time) o.time = it.ref.time;
+        if(it.ref.details) o.details = it.ref.details;
         if(it.ref.color) o.color = it.ref.color;
         if(it.ref.amount) o.amount = it.ref.amount;
         items.push({data:o, key: it.ref.color || (it.kind==='rec' ? 'rec' : 'one')});
@@ -2599,6 +2753,7 @@ document.getElementById('shareImportBtn').onclick = ()=>{
     if(it.t==='one' && typeof it.date==='string' && typeof it.title==='string'){
       const o = {t:'one', date:it.date, title:String(it.title).slice(0,200)};
       if(it.time) o.time = it.time;
+      if(typeof it.details==='string' && it.details) o.details = it.details.slice(0,2000);
       if(PICKABLE.includes(it.color)) o.color = it.color;
       if(typeof it.amount==='number' && it.amount>0) o.amount = it.amount;
       const dup = data.oneOffs.some(o2 => o2.date===o.date && o2.title===o.title && (o2.time||'')===(o.time||''));
@@ -2606,6 +2761,7 @@ document.getElementById('shareImportBtn').onclick = ()=>{
     }else if(it.t==='span' && typeof it.start==='string' && typeof it.end==='string' && typeof it.title==='string'){
       const sp = {t:'span', start:it.start, end:it.end, title:String(it.title).slice(0,200)};
       if(it.time) sp.time = it.time;
+      if(typeof it.details==='string' && it.details) sp.details = it.details.slice(0,2000);
       if(PICKABLE.includes(it.color)) sp.color = it.color;
       const dup = data.spans.some(s2 => s2.start===sp.start && s2.end===sp.end && s2.title===sp.title);
       items.push({data:sp, kind:'span', dup, picked:!dup});
@@ -2776,6 +2932,7 @@ document.getElementById('importFile').addEventListener('change', e=>{
         if(!Array.isArray(d.notes)) d.notes = [];
         if(!Array.isArray(d.done)) d.done = [];
         if(!d.colorNames || typeof d.colorNames!=='object') d.colorNames = {};
+        if(!Array.isArray(d.customColors)) d.customColors = [];
         if(!('theme' in d)) d.theme = 'dark';
         if(d.theme==='white') d.theme = 'light';
         if(d.theme==='gameboy') d.theme = 'sunset';
