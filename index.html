@@ -169,6 +169,15 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 16px
   color:var(--text);border-radius:var(--r-sm);padding:10px;font-size:13px;
   font-family:var(--mono);resize:vertical;
 }
+.rec-occ-row{
+  display:none;flex-basis:100%;gap:6px;margin-top:8px;flex-wrap:wrap;
+}
+.rec-occ-row.open{display:flex}
+.occ-btn{
+  background:var(--surface2);color:var(--text);border:var(--bw) var(--bstyle) var(--line);
+  border-radius:var(--r-sm);padding:7px 10px;font-size:12px;cursor:pointer;font-family:inherit;flex:1;
+}
+.occ-btn.danger{color:var(--coral)}
 .details-field{ margin:6px 0 4px; }
 .preset-swatch{
   width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.25);
@@ -581,7 +590,7 @@ body[data-style=paper] .qa-input{background-image:none}
   <!-- ============ CALENDAR PAGE ============ -->
   <div class="page active" id="page-cal">
     <div class="nudge hidden" id="backupNudge">
-      Your schedule lives only on this phone. It's been a while since your last backup — one tap protects everything.
+      <span id="nudgeText">It's been a while since your last backup. Save a copy?</span>
       <div class="acts">
         <button class="now" id="nudgeNow">Back up now</button>
         <button class="later" id="nudgeLater">Later</button>
@@ -1067,6 +1076,8 @@ function load(){
         if(!Array.isArray(d.done)) d.done = [];
         if(!d.colorNames || typeof d.colorNames!=='object') d.colorNames = {};
         if(!Array.isArray(d.customColors)) d.customColors = [];
+        if(!Array.isArray(d.skips)) d.skips = [];
+        if(typeof d.addsSinceBackup!=='number') d.addsSinceBackup = 0;
         if(!('theme' in d)) d.theme = 'dark';
         if(d.theme==='white') d.theme = 'light';   // white merged into light
         if(d.theme==='gameboy') d.theme = 'sunset';  // gameboy retired
@@ -1080,7 +1091,7 @@ function load(){
       }
     }
   }catch(e){}
-  return {oneOffs:[], recurring:[], spans:[], notes:[], done:[], colorNames:{}, customColors:[],
+  return {oneOffs:[], recurring:[], spans:[], notes:[], done:[], colorNames:{}, customColors:[], skips:[], addsSinceBackup:0,
           theme:'dark', themeHue:null, lastBackup:null, nudgeSnooze:null,
           showHolidays:false, hiddenColors:[], dueOpen:false};
 }
@@ -1245,8 +1256,12 @@ function toggleDone(id, dateStr){
 }
 
 /* ---------- recurrence engine ---------- */
+function isSkipped(recId, dateKey){
+  return Array.isArray(data.skips) && data.skips.includes(recId+'|'+dateKey);
+}
 function recHits(r, d){
   if(r.end && ymd(d) > r.end) return false;
+  if(isSkipped(r.id, ymd(d))) return false;   // this single occurrence was skipped
   if(r.type==='monthly') return d.getDate() === clampDay(d.getFullYear(), d.getMonth(), r.day);
   if(r.type==='weekly')  return d.getDay() === r.weekday;
   if(r.type==='monthweekday'){
@@ -1555,7 +1570,19 @@ function renderNudge(){
   const hasData = data.recurring.length > 0 || data.oneOffs.length > 2;
   const stale = !data.lastBackup || (Date.now() - data.lastBackup) > 30*86400000;
   const snoozed = data.nudgeSnooze && Date.now() < data.nudgeSnooze;
-  n.classList.toggle('hidden', !(hasData && stale && !snoozed));
+  /* burst: a bunch of new items added since the last backup */
+  const burst = (data.addsSinceBackup||0) >= 8;
+  const label = document.getElementById('nudgeText');
+  if(label){
+    label.textContent = burst && !stale
+      ? "You've added a lot lately — back up so you don't lose it?"
+      : "It's been a while since your last backup. Save a copy?";
+  }
+  n.classList.toggle('hidden', !(hasData && (stale || burst) && !snoozed));
+}
+/* count every new entry so we can prompt a backup after a burst */
+function bumpAddCount(nAdded){
+  data.addsSinceBackup = (data.addsSinceBackup||0) + (nAdded||1);
 }
 document.getElementById('nudgeNow').onclick = ()=> exportData();
 document.getElementById('nudgeLater').onclick = ()=>{
@@ -1980,7 +2007,7 @@ document.getElementById('recAddBtn').onclick = ()=>{
     toast('✓ Saved — ' + title);
     stopEditing();
   }else{
-    data.recurring.push(Object.assign({id:uid()}, vals));
+    data.recurring.push(Object.assign({id:uid()}, vals)); bumpAddCount();
     toast('↻ ' + title + ' — ' + recDesc(vals));
     clearRecForm();
   }
@@ -2419,14 +2446,14 @@ function doQuickAdd(){
     const o = {id:uid(), date:ymd(p.date), title:p.title};
     if(p.time) o.time = p.time;
     if(qaColorSel) o.color = qaColorSel;
-    data.oneOffs.push(o);
+    data.oneOffs.push(o); bumpAddCount();
     save();
     toast('✓ '+p.title+' — '+MONTHS_S[p.date.getMonth()]+' '+p.date.getDate()+(p.time?' · '+fmtTime(p.time):''));
   }else if(p.kind==='range'){
     const sp = {id:uid(), start:ymd(p.dates[0]), end:ymd(p.dates[p.dates.length-1]), title:p.title};
     if(p.time) sp.time = p.time;
     if(qaColorSel) sp.color = qaColorSel;
-    data.spans.push(sp);
+    data.spans.push(sp); bumpAddCount();
     save();
     const a=p.dates[0], b=p.dates[p.dates.length-1];
     toast('✓ '+p.title+' — '+p.dates.length+'-day event, '+MONTHS_S[a.getMonth()]+' '+a.getDate()+'–'+MONTHS_S[b.getMonth()]+' '+b.getDate());
@@ -2434,7 +2461,7 @@ function doQuickAdd(){
     const r = Object.assign({id:uid(), title:p.title}, p.rule);
     if(p.time) r.time = p.time;
     if(qaColorSel) r.color = qaColorSel;
-    data.recurring.push(r); save();
+    data.recurring.push(r); bumpAddCount(); save();
     toast('↻ '+p.title+' — '+recDesc(r));
   }
   qaInput.value=''; qaPreview.classList.add('hidden');
@@ -2487,12 +2514,22 @@ function renderSheetItems(){
       ? '<span class="chk-space"></span>'
       : '<button class="chk'+(done?' done':'')+'" data-id="'+it.ref.id+'" aria-label="Mark done">✓</button>';
     const det = it.ref.details ? '<div class="item-details">'+esc(it.ref.details)+'</div>' : '';
+    const recControls = it.kind==='rec'
+      ? '<div class="rec-occ-row">'+
+          '<button class="occ-btn" data-occ="skip" data-id="'+it.ref.id+'">Skip just this day</button>'+
+          '<button class="occ-btn" data-occ="move" data-id="'+it.ref.id+'">Move this one</button>'+
+          '<button class="occ-btn danger" data-occ="all" data-id="'+it.ref.id+'">Remove all</button>'+
+        '</div>'
+      : '';
     return '<div class="item'+(done?' done':'')+'" data-kind="'+it.kind+'" data-id="'+it.ref.id+'">'+
       lead+
       '<span class="dot" style="background:'+COLORS[colorKey(it)]+'"></span>'+
       '<span class="nm">'+esc(it.title)+tm+amt+det+'</span>'+
       '<span class="kind">'+kind+'</span>'+
-      '<button class="del" data-kind="'+it.kind+'" data-id="'+it.ref.id+'">✕</button>'+
+      (it.kind==='rec'
+        ? '<button class="del" data-kind="rec-toggle" data-id="'+it.ref.id+'" aria-label="Options">⋯</button>'
+        : '<button class="del" data-kind="'+it.kind+'" data-id="'+it.ref.id+'">✕</button>')+
+      recControls+
       '</div>';
   }).join('');
 }
@@ -2506,6 +2543,13 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
   }
   const del = e.target.closest('.del');
   if(del){
+    if(del.dataset.kind==='rec-toggle'){
+      /* toggle the per-occurrence options row */
+      const item = del.closest('.item');
+      const row = item && item.querySelector('.rec-occ-row');
+      if(row) row.classList.toggle('open');
+      return;
+    }
     if(del.dataset.kind==='one'){
       data.oneOffs = data.oneOffs.filter(o=>o.id!==del.dataset.id);
       if(sheetEditId===del.dataset.id) stopSheetEdit();
@@ -2517,12 +2561,37 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
         if(sheetEditId===del.dataset.id) stopSheetEdit();
         save(); renderSheetItems(); renderAll();
       }
-    }else{
-      const r = data.recurring.find(x=>x.id===del.dataset.id);
-      if(r && confirm('"'+r.title+'" is recurring. Remove it from EVERY cycle, not just this day?')){
-        data.recurring = data.recurring.filter(x=>x.id!==del.dataset.id);
-        save(); renderSheetItems(); renderAll();
-      }
+    }
+    return;
+  }
+  const occ = e.target.closest('.occ-btn');
+  if(occ){
+    const dKey = ymd(sheetDate);
+    const r = data.recurring.find(x=>x.id===occ.dataset.id);
+    if(!r) return;
+    if(occ.dataset.occ==='skip'){
+      if(!Array.isArray(data.skips)) data.skips = [];
+      data.skips.push(r.id+'|'+dKey);
+      save(); renderSheetItems(); renderAll();
+      toast('Skipped '+r.title+' for this day');
+    }else if(occ.dataset.occ==='move'){
+      /* skip here, drop a one-off copy that the user can re-date by tapping it */
+      if(!Array.isArray(data.skips)) data.skips = [];
+      data.skips.push(r.id+'|'+dKey);
+      const o = {id:uid(), date:dKey, title:r.title};
+      if(r.time) o.time = r.time;
+      if(r.color) o.color = r.color;
+      if(r.amount) o.amount = r.amount;
+      if(r.details) o.details = r.details;
+      data.oneOffs.push(o);
+      save(); renderSheetItems(); renderAll();
+      toast('Now a one-time copy — tap it to change its date');
+    }else if(occ.dataset.occ==='all'){
+      data.recurring = data.recurring.filter(x=>x.id!==r.id);
+      /* clean any skips for this rec */
+      if(Array.isArray(data.skips)) data.skips = data.skips.filter(s=>!s.startsWith(r.id+'|'));
+      save(); renderSheetItems(); renderAll();
+      toast('Removed "'+r.title+'" from every cycle');
     }
     return;
   }
@@ -2575,7 +2644,7 @@ sheetAddBtn.onclick = ()=>{
     if(sheetTime.value) o.time = sheetTime.value;
     if(details) o.details = details.slice(0,2000);
     if(sheetColorSel) o.color = sheetColorSel;
-    data.oneOffs.push(o);
+    data.oneOffs.push(o); bumpAddCount();
     sheetInput.value=''; sheetTime.value='';
     document.getElementById('sheetDetails').value='';
     sheetColorSel = null;
@@ -2850,7 +2919,7 @@ document.getElementById('reviewAddBtn').onclick = ()=>{
   }
   pendingImport = null;
   if(!added){ closeShare(); toast('Nothing selected — nothing added'); return; }
-  purgePast(); save(); renderAll();
+  bumpAddCount(added); purgePast(); save(); renderAll();
   closeShare();
   toast('✓ Added '+added+' item'+(added===1?'':'s'));
 };
@@ -2932,6 +3001,7 @@ document.getElementById('searchResults').addEventListener('click', e=>{
    ============================================================ */
 function exportData(){
   data.lastBackup = Date.now();
+  data.addsSinceBackup = 0;
   save();
   const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
   const a = document.createElement('a');
@@ -2959,6 +3029,8 @@ document.getElementById('importFile').addEventListener('change', e=>{
         if(!Array.isArray(d.done)) d.done = [];
         if(!d.colorNames || typeof d.colorNames!=='object') d.colorNames = {};
         if(!Array.isArray(d.customColors)) d.customColors = [];
+        if(!Array.isArray(d.skips)) d.skips = [];
+        if(typeof d.addsSinceBackup!=='number') d.addsSinceBackup = 0;
         if(!('theme' in d)) d.theme = 'dark';
         if(d.theme==='white') d.theme = 'light';
         if(d.theme==='gameboy') d.theme = 'sunset';
