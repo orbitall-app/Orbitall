@@ -213,8 +213,13 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 16px
 .date-it input[type=date]{flex:1}
 .date-it input[type=time]{flex:0 0 100px;padding:11px 8px}
 .date-it button{
-  background:var(--teal);color:#062420;border:none;border-radius:var(--r-sm);
+  background:#5fd4c4;color:#062420;border:none;border-radius:var(--r-sm);
   padding:11px 12px;font-size:13px;font-weight:700;cursor:pointer;flex:none;
+}
+.note-recurring-btn{
+  width:100%;margin-top:8px;background:var(--surface2);color:var(--text);
+  border:var(--bw) var(--bstyle) var(--line);border-radius:var(--r-sm);
+  padding:10px;font-size:13px;cursor:pointer;font-family:inherit;
 }
 
 /* ---- Recurring list ---- */
@@ -264,10 +269,10 @@ input[type=date],input[type=time]{min-height:44px}
 .row2{display:flex;gap:8px}
 .row2>*{flex:1}
 .btn{
-  width:100%;background:var(--amber);color:#1a1407;border:none;border-radius:var(--r-md);
+  width:100%;background:#f4b860;color:#1a1407;border:none;border-radius:var(--r-md);
   padding:13px;font-size:16px;font-weight:700;cursor:pointer;margin-top:14px;
 }
-.btn.teal{background:var(--teal);color:#062420}
+.btn.teal{background:#5fd4c4;color:#062420}
 .btn.ghost{background:var(--surface2);color:var(--text);border:var(--bw) var(--bstyle) var(--line);font-weight:600}
 .hidden{display:none!important}
 
@@ -370,7 +375,7 @@ input[type=date],input[type=time]{min-height:44px}
 .sheet .addrow input[type=text]{flex:1;min-width:0}
 .sheet .addrow input[type=time]{flex:0 0 104px;padding:11px 8px}
 .sheet .addrow button{
-  background:var(--teal);color:#062420;border:none;border-radius:var(--r-sm);
+  background:#5fd4c4;color:#062420;border:none;border-radius:var(--r-sm);
   padding:0 14px;font-size:15px;font-weight:700;cursor:pointer;flex:none;
 }
 .sheet .color-row{margin-top:10px}
@@ -444,8 +449,8 @@ body.glassy nav.tabs,
 body.glassy #shareBar{
   backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
 }
-body.glassy .btn{color:#2b1d40}
-body.glassy .chk.done{color:#2b1d40}
+body.glassy.lightglass .btn{color:#2b1d40}
+body.glassy.lightglass .chk.done{color:#2b1d40}
 
 /* mountain ridges behind glass */
 body[data-style=mountain]{
@@ -1119,6 +1124,8 @@ function applyTheme(){
   r.colorScheme = t.mode==='light' ? 'light' : 'dark';   // native pickers & edges match
   document.body.dataset.style = t.style || '';
   document.body.classList.toggle('glassy', !!t.glass);
+  document.body.classList.toggle('lightglass', !!t.glass && t.mode==='light');
+  document.body.classList.toggle('lightmode', t.mode==='light' && !t.glass);
 }
 function colorName(key){
   const c = customList().find(c=>c.key===key);
@@ -1739,7 +1746,9 @@ function renderNotes(){
           '<input type="date" id="noteDate" value="'+ymd(startOfToday())+'">'+
           '<input type="time" id="noteTime" aria-label="Time (optional)">'+
           '<button id="noteMoveBtn" data-id="'+n.id+'">→ Calendar</button>'+
-        '</div>' : '')+
+        '</div>'+
+        '<button class="note-recurring-btn" id="noteRecBtn" data-id="'+n.id+'">↻ Make it recurring instead</button>'
+        : '')+
       '</div>';
   }).join('');
 }
@@ -1766,6 +1775,23 @@ function stopNoteEdit(){
   noteCancelBtn.classList.add('hidden');
 }
 document.getElementById('noteList').addEventListener('click', e=>{
+  const recBtn = e.target.closest('#noteRecBtn');
+  if(recBtn){
+    const n = data.notes.find(x=>x.id===recBtn.dataset.id);
+    if(!n) return;
+    /* remove the note and open a fresh recurring entry pre-filled with its text */
+    data.notes = data.notes.filter(x=>x.id!==n.id);
+    datingNoteId = null;
+    save();
+    switchTab('rec');
+    stopEditing();                 // ensure a clean "add" state
+    document.getElementById('recTitle').value = n.text;
+    document.getElementById('mainScroll') && document.getElementById('mainScroll').scrollTo({top:0});
+    document.getElementById('recTitle').focus();
+    renderNotes();
+    toast('Set the schedule and tap Add recurring');
+    return;
+  }
   const move = e.target.closest('#noteMoveBtn');
   if(move){
     const n = data.notes.find(x=>x.id===move.dataset.id);
