@@ -230,6 +230,10 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 16px
   border:var(--bw) var(--bstyle) var(--line);border-radius:var(--r-sm);
   padding:10px;font-size:13px;cursor:pointer;font-family:inherit;
 }
+.note-go-btn{
+  width:100%;background:#5fd4c4;color:#062420;border:none;border-radius:var(--r-sm);
+  padding:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;
+}
 
 /* ---- Recurring list ---- */
 .section-label{
@@ -407,13 +411,19 @@ nav.tabs button.active{color:var(--amber)}
 
 /* ---- Toast ---- */
 #toast{
-  position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom));
-  transform:translateX(-50%) translateY(12px);background:var(--surface2);
+  position:fixed;left:50%;top:50%;
+  transform:translateX(-50%) translateY(-50%) scale(.96);background:var(--surface2);
   border:var(--bw) var(--bstyle) var(--line);color:var(--text);padding:10px 18px;border-radius:var(--r-md);
   font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:50;
-  max-width:90%;text-align:center;
+  max-width:90%;text-align:center;display:flex;align-items:center;gap:12px;justify-content:center;
+  box-shadow:0 8px 30px rgba(0,0,0,.4);
 }
-#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.show{pointer-events:auto;transform:translateX(-50%) translateY(-50%) scale(1)}
+.undo-btn{
+  background:var(--teal);color:#062420;border:none;border-radius:var(--r-sm);
+  padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;flex:none;
+}
+#toast.show{opacity:1}
 
 /* ============ creative theme effects ============ */
 body[data-style=comic] .card,
@@ -1063,6 +1073,7 @@ let datingNoteId = null;     // note showing the "give it a date" row
 let recColorSel = null;
 let sheetColorSel = null;
 let qaColorSel = null;
+let noteColorSel = null;
 
 /* ---------- storage ---------- */
 function load(){
@@ -1703,20 +1714,27 @@ document.getElementById('taskList').addEventListener('click', e=>{
   const del = e.target.closest('.del');
   if(del){
     if(del.dataset.kind==='one'){
+      const o = data.oneOffs.find(x=>x.id===del.dataset.id);
+      snapshotForUndo();
       data.oneOffs = data.oneOffs.filter(o=>o.id!==del.dataset.id);
       save(); renderAll();
+      offerUndo('Deleted'+(o?' "'+o.title+'"':''));
     }else if(del.dataset.kind==='span'){
       const sp = data.spans.find(x=>x.id===del.dataset.id);
-      if(sp && confirm('"'+sp.title+'" covers '+spanDays(sp)+' days ('+shortDate(sp.start)+' – '+shortDate(sp.end)+'). Remove the whole event?')){
+      if(sp){
+        snapshotForUndo();
         data.spans = data.spans.filter(x=>x.id!==del.dataset.id);
         save(); renderAll();
+        offerUndo('Deleted "'+sp.title+'"');
       }
     }else{
       const r = data.recurring.find(x=>x.id===del.dataset.id);
-      if(r && confirm('"'+r.title+'" is recurring. Remove it from EVERY cycle?')){
+      if(r){
+        snapshotForUndo();
         data.recurring = data.recurring.filter(x=>x.id!==del.dataset.id);
         if(editingId===del.dataset.id) stopEditing();
         save(); renderAll();
+        offerUndo('Removed "'+r.title+'" from every cycle');
       }
     }
     return;
@@ -1772,8 +1790,14 @@ function renderNotes(){
         '<div class="date-it">'+
           '<input type="date" id="noteDate" value="'+ymd(startOfToday())+'">'+
           '<input type="time" id="noteTime" aria-label="Time (optional)">'+
-          '<button id="noteMoveBtn" data-id="'+n.id+'">→ Calendar</button>'+
         '</div>'+
+        '<div class="date-it" style="margin-top:8px">'+
+          '<label style="flex:0 0 auto;margin:0;font-size:12px;color:var(--muted)">End date <span style="opacity:.7">(optional)</span></label>'+
+          '<input type="date" id="noteEndDate" value="" aria-label="End date for multi-day event">'+
+        '</div>'+
+        '<label style="display:block;margin:10px 0 4px;font-size:12px;color:var(--muted)">Color (optional)</label>'+
+        '<div class="color-row" id="noteColorRow"></div>'+
+        '<button class="note-go-btn" id="noteMoveBtn" data-id="'+n.id+'" style="margin-top:8px">→ Add to Calendar</button>'+
         '<button class="note-recurring-btn" id="noteRecBtn" data-id="'+n.id+'">↻ Make it recurring instead</button>'
         : '')+
       '</div>';
@@ -1819,15 +1843,37 @@ document.getElementById('noteList').addEventListener('click', e=>{
     toast('Set the schedule and tap Add recurring');
     return;
   }
+  const cdot = e.target.closest('#noteColorRow .cdot-wrap');
+  if(cdot){
+    noteColorSel = cdot.dataset.c || null;
+    buildColorRow(document.getElementById('noteColorRow'), noteColorSel);
+    return;
+  }
   const move = e.target.closest('#noteMoveBtn');
   if(move){
     const n = data.notes.find(x=>x.id===move.dataset.id);
     const dateVal = document.getElementById('noteDate').value;
     if(!n || !dateVal){ toast('Pick a date first'); return; }
-    const o = {id:uid(), date:dateVal, title:n.text};
     const tv = document.getElementById('noteTime').value;
+    const endVal = document.getElementById('noteEndDate').value;
+    if(endVal && endVal !== dateVal){
+      /* end date set → multi-day event */
+      if(endVal < dateVal){ toast('End date is before the start date'); return; }
+      const sp = {id:uid(), start:dateVal, end:endVal, title:n.text};
+      if(tv) sp.time = tv;
+      if(noteColorSel) sp.color = noteColorSel;
+      data.spans.push(sp); bumpAddCount();
+      data.notes = data.notes.filter(x=>x.id!==n.id);
+      datingNoteId = null;
+      save(); renderAll();
+      const a=fromYmd(dateVal), b=fromYmd(endVal);
+      toast('✓ Multi-day event — '+MONTHS_S[a.getMonth()]+' '+a.getDate()+'–'+MONTHS_S[b.getMonth()]+' '+b.getDate());
+      return;
+    }
+    const o = {id:uid(), date:dateVal, title:n.text};
     if(tv) o.time = tv;
-    data.oneOffs.push(o);
+    if(noteColorSel) o.color = noteColorSel;
+    data.oneOffs.push(o); bumpAddCount();
     data.notes = data.notes.filter(x=>x.id!==n.id);
     datingNoteId = null;
     save(); renderAll();
@@ -1837,15 +1883,21 @@ document.getElementById('noteList').addEventListener('click', e=>{
   const dateBtn = e.target.closest('.date-btn');
   if(dateBtn){
     datingNoteId = datingNoteId===dateBtn.dataset.id ? null : dateBtn.dataset.id;
+    noteColorSel = null;
     renderNotes();
+    const ncr = document.getElementById('noteColorRow');
+    if(ncr) buildColorRow(ncr, null);
     return;
   }
   const del = e.target.closest('.del');
   if(del){
+    const nt = data.notes.find(x=>x.id===del.dataset.id);
+    snapshotForUndo();
     data.notes = data.notes.filter(x=>x.id!==del.dataset.id);
     if(editingNoteId===del.dataset.id) stopNoteEdit();
     if(datingNoteId===del.dataset.id) datingNoteId = null;
     save(); renderNotes();
+    offerUndo('Deleted note');
     return;
   }
   if(e.target.closest('.date-it')) return;   // taps inside the date row
@@ -1909,10 +1961,12 @@ document.getElementById('recList').addEventListener('click', e=>{
   const btn = e.target.closest('.del');
   if(btn){
     const r = data.recurring.find(x=>x.id===btn.dataset.id);
-    if(r && confirm('Remove "'+r.title+'" from your recurring schedule?')){
+    if(r){
+      snapshotForUndo();
       data.recurring = data.recurring.filter(x=>x.id!==btn.dataset.id);
       if(editingId===btn.dataset.id) stopEditing();
       save(); renderAll();
+      offerUndo('Removed "'+r.title+'"');
     }
     return;
   }
@@ -2551,15 +2605,20 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
       return;
     }
     if(del.dataset.kind==='one'){
+      const o = data.oneOffs.find(x=>x.id===del.dataset.id);
+      snapshotForUndo();
       data.oneOffs = data.oneOffs.filter(o=>o.id!==del.dataset.id);
       if(sheetEditId===del.dataset.id) stopSheetEdit();
       save(); renderSheetItems(); renderAll();
+      offerUndo('Deleted'+(o?' "'+o.title+'"':''));
     }else if(del.dataset.kind==='span'){
       const sp = data.spans.find(x=>x.id===del.dataset.id);
-      if(sp && confirm('"'+sp.title+'" covers '+spanDays(sp)+' days ('+shortDate(sp.start)+' – '+shortDate(sp.end)+'). Remove the whole event?')){
+      if(sp){
+        snapshotForUndo();
         data.spans = data.spans.filter(x=>x.id!==del.dataset.id);
         if(sheetEditId===del.dataset.id) stopSheetEdit();
         save(); renderSheetItems(); renderAll();
+        offerUndo('Deleted "'+sp.title+'"');
       }
     }
     return;
@@ -2571,9 +2630,10 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
     if(!r) return;
     if(occ.dataset.occ==='skip'){
       if(!Array.isArray(data.skips)) data.skips = [];
+      snapshotForUndo();
       data.skips.push(r.id+'|'+dKey);
       save(); renderSheetItems(); renderAll();
-      toast('Skipped '+r.title+' for this day');
+      offerUndo('Skipped '+r.title+' for this day');
     }else if(occ.dataset.occ==='move'){
       /* skip here, drop a one-off copy that the user can re-date by tapping it */
       if(!Array.isArray(data.skips)) data.skips = [];
@@ -2587,11 +2647,12 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
       save(); renderSheetItems(); renderAll();
       toast('Now a one-time copy — tap it to change its date');
     }else if(occ.dataset.occ==='all'){
+      snapshotForUndo();
       data.recurring = data.recurring.filter(x=>x.id!==r.id);
       /* clean any skips for this rec */
       if(Array.isArray(data.skips)) data.skips = data.skips.filter(s=>!s.startsWith(r.id+'|'));
       save(); renderSheetItems(); renderAll();
-      toast('Removed "'+r.title+'" from every cycle');
+      offerUndo('Removed "'+r.title+'" from every cycle');
     }
     return;
   }
@@ -3069,6 +3130,36 @@ function toast(msg){
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+
+/* ---- Undo: snapshot data before a destructive action, offer one-tap restore ---- */
+let undoSnapshot = null;
+let undoTimer = null;
+function snapshotForUndo(){
+  try{ undoSnapshot = JSON.stringify(data); }catch(e){ undoSnapshot = null; }
+}
+function offerUndo(msg){
+  const t = document.getElementById('toast');
+  t.innerHTML = '<span>'+esc(msg)+'</span><button id="undoBtn" class="undo-btn">Undo</button>';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  clearTimeout(undoTimer);
+  /* the undo offer lasts a bit longer than a normal toast */
+  toastTimer = setTimeout(()=>{ t.classList.remove('show'); }, 6000);
+  undoTimer = setTimeout(()=>{ undoSnapshot = null; }, 6000);
+  const btn = document.getElementById('undoBtn');
+  if(btn) btn.onclick = ()=>{
+    if(!undoSnapshot) return;
+    try{
+      const restored = JSON.parse(undoSnapshot);
+      Object.keys(data).forEach(k=>delete data[k]);
+      Object.assign(data, restored);
+      save(); applyTheme(); renderAll();
+      try{ renderSettings(); }catch(e){}
+      toast('Restored');
+    }catch(e){ toast('Could not undo'); }
+    undoSnapshot = null;
+  };
 }
 
 function renderAll(){
