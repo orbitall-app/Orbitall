@@ -174,8 +174,8 @@ body.big-cal .dow div{font-size:12px}
 #shareBar .stop{background:var(--surface2);color:var(--text);border:var(--bw) var(--bstyle) var(--line)}
 .sheet textarea{
   width:100%;min-height:110px;background:var(--surface2);border:var(--bw) var(--bstyle) var(--line);
-  color:var(--text);border-radius:var(--r-sm);padding:10px;font-size:13px;
-  font-family:var(--mono);resize:vertical;
+  color:var(--text);border-radius:var(--r-sm);padding:10px;font-size:16px;
+  font-family:var(--mono);resize:vertical;-webkit-text-size-adjust:100%;text-size-adjust:100%;
 }
 .rec-occ-row{
   display:none;flex-basis:100%;gap:6px;margin-top:8px;flex-wrap:wrap;
@@ -205,6 +205,42 @@ body.big-cal .dow div{font-size:12px}
 .tgl:checked{background:var(--teal)}
 .tgl:checked::after{transform:translateX(18px);background:#fff}
 body.hide-tips .tip-text{display:none!important}
+.trash-row{
+  display:flex;align-items:center;gap:10px;padding:10px 2px;
+  border-top:var(--bw) var(--bstyle) var(--line);
+}
+.trash-row:first-child{border-top:none}
+.trash-nm{flex:1;font-size:14px;color:var(--text);display:flex;flex-direction:column;gap:2px}
+.trash-nm .tm{font-size:11px;color:var(--muted)}
+.trash-restore{
+  background:var(--teal);color:#062420;border:none;border-radius:var(--r-sm);
+  padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;flex:none;
+}
+.trash-del{
+  background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:4px 6px;flex:none;
+}
+.dot-btn{
+  width:26px!important;height:26px!important;border-radius:50%;
+  border:2px solid rgba(255,255,255,.35);cursor:pointer;padding:0;flex:none;
+  position:relative;
+}
+.dot-btn::after{
+  content:'⌄';position:absolute;right:-3px;bottom:-7px;font-size:11px;
+  color:var(--muted);background:var(--surface);border-radius:50%;
+  width:13px;height:13px;line-height:11px;text-align:center;
+}
+.imp-colors{
+  display:flex;flex-wrap:wrap;gap:7px;padding:8px 4px 12px 40px;
+}
+.imp-swatch{
+  width:30px;height:30px;border-radius:50%;border:2px solid rgba(255,255,255,.2);
+  cursor:pointer;padding:0;flex:none;
+}
+.imp-swatch.on{border-color:var(--text);box-shadow:0 0 0 2px var(--teal)}
+.imp-swatch.clear{
+  background:var(--surface2)!important;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+}
 .preset-swatch{
   width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.25);
   cursor:pointer;padding:0;flex:0 0 auto;
@@ -829,6 +865,11 @@ body[data-style=paper] .qa-input{background-image:none}
         <input type="checkbox" class="tgl" id="tgHelperTips"></label>
     </div>
     <div class="card">
+      <button class="btn ghost" id="openTrashBtn" style="margin-top:0;display:flex;align-items:center;justify-content:space-between">
+        <span>🗑 Trash</span><span style="color:var(--muted)">›</span>
+      </button>
+    </div>
+    <div class="card">
       <div class="section-label" style="margin-top:0">Backup &amp; restore</div>
       <p class="empty-note" style="padding-top:0">Your data lives only on this phone. Save a backup file once in a while — especially after setting up your bills.</p>
       <button class="btn ghost" id="exportBtn">Save backup file</button>
@@ -862,6 +903,16 @@ body[data-style=paper] .qa-input{background-image:none}
         <button class="btn teal" id="customAddBtn" style="margin-top:0;flex:1">+ Add this color</button>
       </div>
       <div class="filter-bar" id="customPresets" style="margin-top:10px"></div>
+    </div>
+  </div>
+  <!-- ============ TRASH PAGE ============ -->
+  <div class="page" id="page-trash">
+    <button class="btn ghost" id="trashBack" style="margin:4px 0 12px">‹ Back to settings</button>
+    <div class="card">
+      <div class="section-label" style="margin-top:0">Trash</div>
+      <p class="empty-note" style="padding-top:0">Deleted items are kept here. Restore anything you didn't mean to remove, or clear it out for good.</p>
+      <div id="trashList"></div>
+      <button class="btn ghost" id="emptyTrashBtn" style="margin-top:12px">Empty trash</button>
     </div>
   </div>
 </main>
@@ -1131,6 +1182,7 @@ function load(){
         if(!Array.isArray(d.done)) d.done = [];
         if(!d.colorNames || typeof d.colorNames!=='object') d.colorNames = {};
         if(!Array.isArray(d.customColors)) d.customColors = [];
+        if(!Array.isArray(d.trash)) d.trash = [];
         if(!d.display || typeof d.display!=='object') d.display = {backupNudge:true,dueBanner:true,filterBar:true,holdTip:true,helperTips:true};
         if(!Array.isArray(d.skips)) d.skips = [];
         if(typeof d.addsSinceBackup!=='number') d.addsSinceBackup = 0;
@@ -1147,7 +1199,7 @@ function load(){
       }
     }
   }catch(e){}
-  return {oneOffs:[], recurring:[], spans:[], notes:[], done:[], colorNames:{}, customColors:[], display:{backupNudge:true,dueBanner:true,filterBar:true,holdTip:true,helperTips:true}, skips:[], addsSinceBackup:0,
+  return {oneOffs:[], recurring:[], spans:[], notes:[], done:[], colorNames:{}, customColors:[], trash:[], display:{backupNudge:true,dueBanner:true,filterBar:true,holdTip:true,helperTips:true}, skips:[], addsSinceBackup:0,
           theme:'dark', themeHue:null, lastBackup:null, nudgeSnooze:null,
           showHolidays:false, hiddenColors:[], dueOpen:false};
 }
@@ -1809,6 +1861,7 @@ document.getElementById('taskList').addEventListener('click', e=>{
     if(del.dataset.kind==='one'){
       const o = data.oneOffs.find(x=>x.id===del.dataset.id);
       snapshotForUndo();
+      if(o) trashPush('one', o);
       data.oneOffs = data.oneOffs.filter(o=>o.id!==del.dataset.id);
       save(); renderAll();
       offerUndo('Deleted'+(o?' "'+o.title+'"':''));
@@ -1816,6 +1869,7 @@ document.getElementById('taskList').addEventListener('click', e=>{
       const sp = data.spans.find(x=>x.id===del.dataset.id);
       if(sp){
         snapshotForUndo();
+        trashPush('span', sp);
         data.spans = data.spans.filter(x=>x.id!==del.dataset.id);
         save(); renderAll();
         offerUndo('Deleted "'+sp.title+'"');
@@ -1824,6 +1878,7 @@ document.getElementById('taskList').addEventListener('click', e=>{
       const r = data.recurring.find(x=>x.id===del.dataset.id);
       if(r){
         snapshotForUndo();
+        trashPush('rec', r);
         data.recurring = data.recurring.filter(x=>x.id!==del.dataset.id);
         if(editingId===del.dataset.id) stopEditing();
         save(); renderAll();
@@ -1994,6 +2049,7 @@ document.getElementById('noteList').addEventListener('click', e=>{
   if(del){
     const nt = data.notes.find(x=>x.id===del.dataset.id);
     snapshotForUndo();
+    if(nt) trashPush('note', nt);
     data.notes = data.notes.filter(x=>x.id!==del.dataset.id);
     if(editingNoteId===del.dataset.id) stopNoteEdit();
     if(datingNoteId===del.dataset.id) datingNoteId = null;
@@ -2067,6 +2123,7 @@ document.getElementById('recList').addEventListener('click', e=>{
     const r = data.recurring.find(x=>x.id===btn.dataset.id);
     if(r){
       snapshotForUndo();
+      trashPush('rec', r);
       data.recurring = data.recurring.filter(x=>x.id!==btn.dataset.id);
       if(editingId===btn.dataset.id) stopEditing();
       save(); renderAll();
@@ -2367,6 +2424,15 @@ document.getElementById('openThemesBtn').onclick = ()=>{ renderSettings(); switc
 document.getElementById('themesBack').onclick = ()=> switchTab('settings');
 document.getElementById('openColorsBtn').onclick = ()=>{ renderSettings(); switchTab('colors'); };
 document.getElementById('colorsBack').onclick = ()=> switchTab('settings');
+document.getElementById('openTrashBtn').onclick = ()=>{ renderTrash(); switchTab('trash'); };
+document.getElementById('trashBack').onclick = ()=> switchTab('settings');
+document.getElementById('emptyTrashBtn').onclick = ()=> emptyTrash();
+document.getElementById('trashList').addEventListener('click', e=>{
+  const r = e.target.closest('[data-restore]');
+  if(r){ restoreFromTrash(r.dataset.restore); return; }
+  const p = e.target.closest('[data-purge]');
+  if(p){ purgeFromTrash(p.dataset.purge); return; }
+});
 /* calendar-display toggles */
 const bcEl = document.getElementById('tgBigCal');
 if(bcEl) bcEl.addEventListener('change', ()=>{
@@ -2730,6 +2796,7 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
     if(del.dataset.kind==='one'){
       const o = data.oneOffs.find(x=>x.id===del.dataset.id);
       snapshotForUndo();
+      if(o) trashPush('one', o);
       data.oneOffs = data.oneOffs.filter(o=>o.id!==del.dataset.id);
       if(sheetEditId===del.dataset.id) stopSheetEdit();
       save(); renderSheetItems(); renderAll();
@@ -2738,6 +2805,7 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
       const sp = data.spans.find(x=>x.id===del.dataset.id);
       if(sp){
         snapshotForUndo();
+        trashPush('span', sp);
         data.spans = data.spans.filter(x=>x.id!==del.dataset.id);
         if(sheetEditId===del.dataset.id) stopSheetEdit();
         save(); renderSheetItems(); renderAll();
@@ -2771,6 +2839,7 @@ document.getElementById('sheetItems').addEventListener('click', e=>{
       toast('Now a one-time copy — tap it to change its date');
     }else if(occ.dataset.occ==='all'){
       snapshotForUndo();
+      trashPush('rec', r);
       data.recurring = data.recurring.filter(x=>x.id!==r.id);
       /* clean any skips for this rec */
       if(Array.isArray(data.skips)) data.skips = data.skips.filter(s=>!s.startsWith(r.id+'|'));
@@ -3063,7 +3132,7 @@ function openImportReview(){
   if(n >= 50) warn = '⚠ This contains '+n+' items — review carefully before adding. ';
   document.getElementById('reviewSummary').textContent =
     warn + n + ' item'+(n===1?'':'s')+' received'+(dups? ' ('+dups+' already on your calendar, pre-unchecked)':'')+
-    '. Check only what you want, then add.';
+    '. Check what you want, tap a color dot to set its category, then add.';
   renderReviewList();
   overlay.classList.add('open');
   shareSheet.classList.add('open');
@@ -3075,15 +3144,46 @@ function renderReviewList(){
     let sub;
     if(x.kind==='one'){ const dt=fromYmd(d.date); sub=WDAYS_S[dt.getDay()]+' '+MONTHS_S[dt.getMonth()]+' '+dt.getDate()+(d.time?' · '+fmtTime(d.time):'')+(d.amount?' · $'+fmtAmt(d.amount):''); }
     else { const a=fromYmd(d.start),b=fromYmd(d.end); sub=MONTHS_S[a.getMonth()]+' '+a.getDate()+' – '+MONTHS_S[b.getMonth()]+' '+b.getDate()+' · '+spanDays(d)+' days'; }
-    const key = d.color || (x.kind==='span'?'one':'one');
+    const key = d.color || 'one';
+    const open = (x._coloring === true);
+    let picker = '';
+    if(open){
+      const choices = ['one','rec', ...BASE_PICKABLE, ...usedCustomColors().concat(customList().map(c=>c.key)).filter((v,idx,a)=>a.indexOf(v)===idx)];
+      const uniq = [...new Set(choices)];
+      picker = '<div class="imp-colors">'+
+        uniq.map(k=>'<button class="imp-swatch'+(key===k?' on':'')+'" data-setcolor="'+i+'" data-ck="'+k+'" style="background:'+COLORS[k]+'" aria-label="'+esc(colorName(k))+'"></button>').join('')+
+        '<button class="imp-swatch clear'+(!d.color?' on':'')+'" data-setcolor="'+i+'" data-ck="" aria-label="No color">–</button>'+
+      '</div>';
+    }
     return '<div class="task-row" data-i="'+i+'" style="cursor:pointer">'+
       '<button class="chk'+(x.picked?' done':'')+'" data-i="'+i+'" aria-label="Toggle">✓</button>'+
-      '<span class="dot" style="background:'+COLORS[key]+'"></span>'+
+      '<button class="dot dot-btn" data-colorbtn="'+i+'" style="background:'+COLORS[key]+'" aria-label="Choose color"></button>'+
       '<span class="nm">'+esc(d.title)+'<span class="tm">'+esc(sub)+(x.dup?' · already added':'')+'</span></span>'+
-      '</div>';
+      '</div>'+ picker;
   }).join('');
 }
 document.getElementById('reviewList').addEventListener('click', e=>{
+  /* tap the color dot → toggle that item's color picker */
+  const cbtn = e.target.closest('[data-colorbtn]');
+  if(cbtn){
+    const i = +cbtn.dataset.colorbtn;
+    const wasOpen = pendingImport.items[i]._coloring;
+    pendingImport.items.forEach(x=>x._coloring=false);
+    pendingImport.items[i]._coloring = !wasOpen;
+    renderReviewList();
+    return;
+  }
+  /* pick a color for that item */
+  const sw = e.target.closest('[data-setcolor]');
+  if(sw){
+    const i = +sw.dataset.setcolor;
+    const ck = sw.dataset.ck;
+    if(ck) pendingImport.items[i].data.color = ck;
+    else delete pendingImport.items[i].data.color;
+    pendingImport.items[i]._coloring = false;
+    renderReviewList();
+    return;
+  }
   const row = e.target.closest('[data-i]');
   if(!row) return;
   const i = +row.dataset.i;
@@ -3213,6 +3313,7 @@ document.getElementById('importFile').addEventListener('change', e=>{
         if(!Array.isArray(d.done)) d.done = [];
         if(!d.colorNames || typeof d.colorNames!=='object') d.colorNames = {};
         if(!Array.isArray(d.customColors)) d.customColors = [];
+        if(!Array.isArray(d.trash)) d.trash = [];
         if(!d.display || typeof d.display!=='object') d.display = {backupNudge:true,dueBanner:true,filterBar:true,holdTip:true,helperTips:true};
         if(!Array.isArray(d.skips)) d.skips = [];
         if(typeof d.addsSinceBackup!=='number') d.addsSinceBackup = 0;
@@ -3266,6 +3367,66 @@ function toast(msg){
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(()=>t.classList.remove('show'), 2400);
+}
+
+/* ---- Trash: deleted items are kept here until restored or permanently removed ---- */
+function trashPush(kind, obj){
+  if(!Array.isArray(data.trash)) data.trash = [];
+  /* store a deep copy plus what it was and when */
+  data.trash.unshift({ tid:uid(), kind, when:Date.now(), item:JSON.parse(JSON.stringify(obj)) });
+  /* keep trash from growing without bound */
+  if(data.trash.length > 200) data.trash = data.trash.slice(0,200);
+}
+function trashLabel(t){
+  const it = t.item;
+  if(t.kind==='one')  return it.title || 'Task';
+  if(t.kind==='span') return (it.title||'Event')+' (multi-day)';
+  if(t.kind==='rec')  return (it.title||'Recurring')+' (recurring)';
+  if(t.kind==='note') return (it.text||'Note')+' (note)';
+  return 'Item';
+}
+function restoreFromTrash(tid){
+  const idx = (data.trash||[]).findIndex(t=>t.tid===tid);
+  if(idx<0) return;
+  const t = data.trash[idx];
+  const it = t.item;
+  if(t.kind==='one')  data.oneOffs.push(it);
+  else if(t.kind==='span') data.spans.push(it);
+  else if(t.kind==='rec')  data.recurring.push(it);
+  else if(t.kind==='note') data.notes.unshift(it);
+  data.trash.splice(idx,1);
+  save(); renderAll(); renderTrash();
+  toast('Restored "'+trashLabel(t)+'"');
+}
+function purgeFromTrash(tid){
+  data.trash = (data.trash||[]).filter(t=>t.tid!==tid);
+  save(); renderTrash();
+}
+function emptyTrash(){
+  if(!(data.trash||[]).length){ toast('Trash is already empty'); return; }
+  snapshotForUndo();
+  const n = data.trash.length;
+  data.trash = [];
+  save(); renderTrash();
+  offerUndo('Emptied trash ('+n+' item'+(n===1?'':'s')+')');
+}
+function renderTrash(){
+  const box = document.getElementById('trashList');
+  if(!box) return;
+  const list = data.trash || [];
+  if(!list.length){
+    box.innerHTML = '<p class="empty-note" style="padding-top:0">Trash is empty. Deleted items will appear here so you can restore them.</p>';
+    return;
+  }
+  box.innerHTML = list.map(t=>{
+    const d = new Date(t.when);
+    const ago = MONTHS_S[d.getMonth()]+' '+d.getDate();
+    return '<div class="trash-row">'+
+      '<span class="trash-nm">'+esc(trashLabel(t))+'<span class="tm">deleted '+ago+'</span></span>'+
+      '<button class="trash-restore" data-restore="'+t.tid+'">Restore</button>'+
+      '<button class="trash-del" data-purge="'+t.tid+'" aria-label="Delete forever">✕</button>'+
+      '</div>';
+  }).join('');
 }
 
 /* ---- Undo: snapshot data before a destructive action, offer one-tap restore ---- */
