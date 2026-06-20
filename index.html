@@ -205,6 +205,44 @@ body.big-cal .dow div{font-size:12px}
 .tgl:checked{background:var(--teal)}
 .tgl:checked::after{transform:translateX(18px);background:#fff}
 body.hide-tips .tip-text{display:none!important}
+/* collapsible section heads */
+.collapse-head{
+  width:100%;display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface);border:var(--bw) var(--bstyle) var(--line);
+  border-radius:var(--r-md);padding:14px 16px;font-size:15px;font-weight:600;
+  color:var(--text);cursor:pointer;font-family:inherit;margin-bottom:10px;
+}
+.collapse-caret{color:var(--muted);transition:transform .2s}
+.collapse-head[aria-expanded="true"] .collapse-caret{transform:rotate(90deg)}
+.collapse-body{margin-bottom:10px}
+/* subscriptions */
+.subs-total-card{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface);border:var(--bw) var(--bstyle) var(--line);
+  border-radius:var(--r-md);padding:12px 16px;margin-bottom:12px;font-size:14px;
+}
+.subs-total-card .big{font-size:20px;font-weight:700;color:var(--teal)}
+.sub-row{
+  background:var(--surface);border:var(--bw) var(--bstyle) var(--line);
+  border-radius:var(--r-md);padding:12px 14px;margin-bottom:8px;
+}
+.sub-top{display:flex;align-items:center;gap:11px}
+.sub-name{flex:1;font-size:15px;font-weight:600;min-width:0}
+.sub-name .sub-price{font-weight:400;color:var(--muted);font-size:13px;margin-left:6px}
+.sub-detail{font-size:12px;color:var(--muted);margin-top:3px}
+.sub-fields{margin-top:10px;display:none}
+.sub-row.active .sub-fields{display:block}
+.sub-fields .row2{margin-top:0}
+.sub-fields label{margin-top:8px}
+.sub-cal-btn{
+  width:100%;margin-top:10px;background:#5fd4c4;color:#062420;border:none;
+  border-radius:var(--r-sm);padding:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;
+}
+.sub-cal-btn.on{background:var(--surface2);color:var(--text);border:var(--bw) var(--bstyle) var(--line)}
+.sub-del{background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:4px 6px;flex:none}
+.add-sub-row{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.add-sub-row input{width:100%}
+.add-sub-row .btn{margin-top:0}
 .trash-row{
   display:flex;align-items:center;gap:10px;padding:10px 2px;
   border-top:var(--bw) var(--bstyle) var(--line);
@@ -725,7 +763,10 @@ body[data-style=paper] .qa-input{background-image:none}
 
   <!-- ============ RECURRING PAGE ============ -->
   <div class="page" id="page-rec">
-    <div class="card">
+    <button class="collapse-head" id="recFormToggle" aria-expanded="false">
+      <span>➕ Add a recurring item</span><span class="collapse-caret">▸</span>
+    </button>
+    <div class="card collapse-body hidden" id="recFormBody">
       <label for="recTitle">What is it?</label>
       <input type="text" id="recTitle" placeholder="Mortgage, car insurance, trash day…">
       <label for="recFreq">How often?</label>
@@ -799,6 +840,18 @@ body[data-style=paper] .qa-input{background-image:none}
       <input type="text" id="recDetails" class="details-field" placeholder="Details (optional)">
       <button class="btn" id="recAddBtn">Add recurring</button>
       <button class="btn ghost hidden" id="recCancelBtn">Cancel editing</button>
+    </div>
+    <button class="collapse-head" id="subsToggle" aria-expanded="false">
+      <span>📺 Subscriptions</span><span class="collapse-caret">▸</span>
+    </button>
+    <div class="collapse-body hidden" id="subsBody">
+      <p class="empty-note tip-text" style="padding-top:0">Toggle on what you're paying for. Add a price and renewal date, and optionally drop it on the calendar. Turn one off when you pause it and it leaves your calendar too.</p>
+      <div class="subs-total-card" id="subsTotalCard"></div>
+      <div id="subsList"></div>
+      <div class="add-sub-row">
+        <input type="text" id="newSubName" placeholder="Add another service…" autocomplete="off">
+        <button class="btn teal" id="addSubBtn" style="margin-top:0">Add</button>
+      </div>
     </div>
     <div class="total-card hidden" id="totalCard">
       <span class="lbl" id="totalLbl">Recurring due this month</span>
@@ -2076,8 +2129,94 @@ document.getElementById('noteList').addEventListener('click', e=>{
 /* ============================================================
    RENDER — recurring tab
    ============================================================ */
+/* ============================================================
+   SUBSCRIPTIONS
+   ============================================================ */
+const SUB_PRESETS = [
+  'Netflix','Spotify','Amazon Prime','Disney+','Hulu','Max','YouTube Premium',
+  'Apple TV+','Apple Music','Apple One','iCloud+','Paramount+','Peacock',
+  'Walmart+','Audible','Xbox Game Pass','PlayStation Plus','Nintendo Switch Online',
+  'Adobe Creative Cloud','Microsoft 365','Google One','Dropbox','ChatGPT Plus','Claude',
+  'Patreon','Twitch','HBO','Crunchyroll','ESPN+','Peloton','Planet Fitness'
+];
+/* data.subs: [{id, name, active, price, renew (YYYY-MM-DD), details, onCal, recId}] */
+function subsList(){ return Array.isArray(data.subs) ? data.subs : []; }
+function ensureSubsSeeded(){
+  if(!Array.isArray(data.removedPresets)) data.removedPresets = [];
+  if(!Array.isArray(data.subs)){
+    data.subs = SUB_PRESETS.map(name=>({id:uid(), name, active:false, price:'', renew:'', details:'', onCal:false, recId:null}));
+  }else{
+    const have = new Set(data.subs.map(s=>s.name.toLowerCase()));
+    const removed = new Set(data.removedPresets.map(n=>n.toLowerCase()));
+    for(const name of SUB_PRESETS){
+      if(!have.has(name.toLowerCase()) && !removed.has(name.toLowerCase())){
+        data.subs.push({id:uid(), name, active:false, price:'', renew:'', details:'', onCal:false, recId:null});
+      }
+    }
+  }
+}
+function renderSubs(){
+  const box = document.getElementById('subsList');
+  if(!box) return;
+  ensureSubsSeeded();
+  const subs = [...data.subs].sort((a,b)=>{
+    if(a.active!==b.active) return a.active ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  box.innerHTML = subs.map(s=>{
+    const priceLbl = s.active && s.price ? '<span class="sub-price">$'+esc(s.price)+'/mo</span>' : '';
+    const renewLbl = s.active && s.renew ? 'Renews '+shortDate(s.renew) : '';
+    return '<div class="sub-row'+(s.active?' active':'')+'" data-sid="'+s.id+'">'+
+      '<div class="sub-top">'+
+        '<input type="checkbox" class="tgl" data-subtgl="'+s.id+'"'+(s.active?' checked':'')+'>'+
+        '<span class="sub-name">'+esc(s.name)+priceLbl+(renewLbl?'<div class="sub-detail">'+renewLbl+'</div>':'')+'</span>'+
+        '<button class="sub-del" data-subdel="'+s.id+'" aria-label="Remove">✕</button>'+
+      '</div>'+
+      '<div class="sub-fields">'+
+        '<div class="row2">'+
+          '<div><label>Price / month</label><input type="text" inputmode="decimal" data-subprice="'+s.id+'" value="'+esc(s.price||'')+'" placeholder="9.99"></div>'+
+          '<div><label>Renewal date</label><input type="date" data-subrenew="'+s.id+'" value="'+esc(s.renew||'')+'"></div>'+
+        '</div>'+
+        '<label>Details (optional)</label>'+
+        '<input type="text" class="details-field" data-subdetails="'+s.id+'" value="'+esc(s.details||'')+'" placeholder="Account email, plan, notes…">'+
+        '<button class="sub-cal-btn'+(s.onCal?' on':'')+'" data-subcal="'+s.id+'">'+(s.onCal?'✓ On your calendar — tap to remove':'→ Add renewal to calendar')+'</button>'+
+      '</div>'+
+      '</div>';
+  }).join('');
+  const tc = document.getElementById('subsTotalCard');
+  if(tc){
+    const active = data.subs.filter(s=>s.active);
+    const total = active.reduce((sum,s)=> sum + (parseFloat(s.price)||0), 0);
+    if(active.length){
+      tc.style.display='';
+      tc.innerHTML = '<span>'+active.length+' active subscription'+(active.length===1?'':'s')+'</span>'+
+                     '<span class="big">$'+total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'/mo</span>';
+    }else{
+      tc.style.display='none';
+    }
+  }
+}
+function subAddToCal(s){
+  if(!s.renew){ toast('Set a renewal date first'); return; }
+  const day = fromYmd(s.renew).getDate();
+  const rec = {id:uid(), type:'monthly', day, title:s.name+' renewal', color:'rec'};
+  if(s.price) rec.amount = parseFloat(s.price)||undefined;
+  if(s.details) rec.details = s.details;
+  data.recurring.push(rec);
+  s.recId = rec.id; s.onCal = true;
+  bumpAddCount();
+}
+function subRemoveFromCal(s){
+  if(s.recId){
+    data.recurring = data.recurring.filter(r=>r.id!==s.recId);
+    if(Array.isArray(data.skips)) data.skips = data.skips.filter(k=>!k.startsWith(s.recId+'|'));
+  }
+  s.recId = null; s.onCal = false;
+}
+
 function renderRecurring(){
   renderTotal();
+  renderSubs();
   const list = document.getElementById('recList');
   if(!data.recurring.length){
     list.innerHTML = '<div class="empty-note">Nothing recurring yet. Add your mortgage, car insurance, and bills above — they\'ll show up on the calendar automatically, every cycle, forever.</div>';
@@ -2194,6 +2333,92 @@ recFreq.onchange = ()=>{
   document.getElementById('recBiweeklyOpts').classList.toggle('hidden', recFreq.value!=='biweekly');
   document.getElementById('recYearlyOpts').classList.toggle('hidden', recFreq.value!=='yearly');
 };
+/* collapsible sections in the Recurring tab */
+function setupCollapse(headId, bodyId, startOpen){
+  const head = document.getElementById(headId), body = document.getElementById(bodyId);
+  if(!head||!body) return;
+  const set = (open)=>{
+    head.setAttribute('aria-expanded', open?'true':'false');
+    body.classList.toggle('hidden', !open);
+  };
+  set(!!startOpen);
+  head.onclick = ()=> set(body.classList.contains('hidden'));
+}
+setupCollapse('recFormToggle','recFormBody', false);
+setupCollapse('subsToggle','subsBody', false);
+
+/* subscriptions: toggle active, edit fields, add to calendar, add/remove custom */
+document.getElementById('subsList').addEventListener('change', e=>{
+  const tgl = e.target.closest('[data-subtgl]');
+  if(tgl){
+    const s = data.subs.find(x=>x.id===tgl.dataset.subtgl);
+    if(s){
+      s.active = tgl.checked;
+      if(!s.active && s.onCal) subRemoveFromCal(s);   // pausing a sub pulls it off the calendar
+      save(); renderSubs(); renderAll();
+      toast(s.active ? s.name+' marked active' : s.name+' paused');
+    }
+    return;
+  }
+  const pr = e.target.closest('[data-subprice]');
+  if(pr){ const s=data.subs.find(x=>x.id===pr.dataset.subprice); if(s){ s.price=pr.value.trim(); syncSubCal(s); save(); renderSubs(); } return; }
+  const rn = e.target.closest('[data-subrenew]');
+  if(rn){ const s=data.subs.find(x=>x.id===rn.dataset.subrenew); if(s){ s.renew=rn.value; syncSubCal(s); save(); renderSubs(); renderAll(); } return; }
+  const dt = e.target.closest('[data-subdetails]');
+  if(dt){ const s=data.subs.find(x=>x.id===dt.dataset.subdetails); if(s){ s.details=dt.value.trim(); syncSubCal(s); save(); } return; }
+});
+/* if a sub is already on the calendar and its price/date/details change, update the linked rec */
+function syncSubCal(s){
+  if(!s.onCal || !s.recId) return;
+  const r = data.recurring.find(x=>x.id===s.recId);
+  if(!r) return;
+  if(s.renew) r.day = fromYmd(s.renew).getDate();
+  if(s.price) r.amount = parseFloat(s.price)||undefined; else delete r.amount;
+  if(s.details) r.details = s.details; else delete r.details;
+}
+document.getElementById('subsList').addEventListener('click', e=>{
+  const cal = e.target.closest('[data-subcal]');
+  if(cal){
+    const s = data.subs.find(x=>x.id===cal.dataset.subcal);
+    if(s){
+      if(s.onCal){ subRemoveFromCal(s); toast('Removed from calendar'); }
+      else { subAddToCal(s); if(s.onCal) toast('Added '+s.name+' renewal to calendar'); }
+      save(); renderSubs(); renderAll();
+    }
+    return;
+  }
+  const del = e.target.closest('[data-subdel]');
+  if(del){
+    const s = data.subs.find(x=>x.id===del.dataset.subdel);
+    if(s){
+      if(s.onCal) subRemoveFromCal(s);
+      /* if it's a built-in preset, remember it's removed so it won't reappear */
+      if(SUB_PRESETS.includes(s.name)){
+        if(!Array.isArray(data.removedPresets)) data.removedPresets = [];
+        if(!data.removedPresets.includes(s.name)) data.removedPresets.push(s.name);
+      }
+      data.subs = data.subs.filter(x=>x.id!==s.id);
+      save(); renderSubs(); renderAll();
+      toast('Removed '+s.name);
+    }
+    return;
+  }
+});
+document.getElementById('addSubBtn').onclick = ()=>{
+  const inp = document.getElementById('newSubName');
+  const name = inp.value.trim();
+  if(!name){ toast('Type a name first'); return; }
+  ensureSubsSeeded();
+  if(data.subs.some(s=>s.name.toLowerCase()===name.toLowerCase())){ toast('That one\'s already in the list'); inp.value=''; return; }
+  /* if this was a previously-removed preset, un-remember the removal */
+  if(Array.isArray(data.removedPresets)) data.removedPresets = data.removedPresets.filter(n=>n.toLowerCase()!==name.toLowerCase());
+  data.subs.push({id:uid(), name, active:true, price:'', renew:'', details:'', onCal:false, recId:null});
+  inp.value='';
+  save(); renderSubs();
+  toast('Added '+name);
+};
+document.getElementById('newSubName').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('addSubBtn').click(); });
+
 document.getElementById('recAddBtn').onclick = ()=>{
   const title = document.getElementById('recTitle').value.trim();
   if(!title){ toast('Give it a name first'); return; }
