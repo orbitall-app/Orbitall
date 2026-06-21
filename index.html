@@ -109,6 +109,19 @@ main{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 16px
 
 /* ---- Filter bar ---- */
 .filter-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.color-filter-scroll{
+  display:flex;gap:6px;margin-bottom:12px;
+  overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none;padding-bottom:2px;
+}
+.color-filter-scroll::-webkit-scrollbar{display:none}
+.color-filter-scroll .pill{flex:0 0 auto}
+.grid-wrap{position:relative;overflow:hidden}
+.cal-incoming{
+  position:absolute;top:0;left:0;right:0;
+  display:grid;grid-template-columns:repeat(7,1fr);gap:4px;
+}
+body.big-cal .cal-incoming{gap:5px}
 .pill{
   display:flex;align-items:center;gap:6px;background:var(--surface);
   border:var(--bw) var(--bstyle) var(--line);border-radius:999px;padding:6px 11px;
@@ -714,6 +727,7 @@ body[data-style=paper] .qa-input{background-image:none}
       </button>
     </div>
     <div class="filter-bar" id="filterBar"></div>
+    <div class="color-filter-scroll" id="colorFilterBar"></div>
     <div class="cal-head">
       <div class="month" id="monthLabel" role="button" tabindex="0"></div>
       <div class="nav">
@@ -729,7 +743,9 @@ body[data-style=paper] .qa-input{background-image:none}
     <div class="dow">
       <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
     </div>
-    <div class="grid" id="calGrid"></div>
+    <div class="grid-wrap" id="gridWrap">
+      <div class="grid" id="calGrid"></div>
+    </div>
     <p class="empty-note" id="holdTip" style="text-align:center;font-size:12px">Tip: press &amp; hold a day to see it full-screen</p>
   </div>
 
@@ -1352,10 +1368,12 @@ function showPref(key){
 function applyDisplayPrefs(){
   const map = {
     dueBanner: document.querySelector('.due-strip'),
-    filterBar: document.getElementById('filterBar'),
     holdTip: document.getElementById('holdTip'),
   };
   for(const k in map){ if(map[k]) map[k].style.display = showPref(k) ? '' : 'none'; }
+  /* the unified filter/share row */
+  const cfb = document.getElementById('colorFilterBar');
+  if(cfb) cfb.style.display = showPref('filterBar') ? '' : 'none';
   document.body.classList.toggle('hide-tips', !showPref('helperTips'));
   document.body.classList.toggle('big-cal', data.display && data.display.bigCal===true);
   /* backup nudge: only force-hide when the user turned it off; otherwise let renderNudge decide */
@@ -1519,10 +1537,8 @@ function recSubline(r){
 const calGrid = document.getElementById('calGrid');
 const monthLabel = document.getElementById('monthLabel');
 
-function renderCalendar(){
-  const y = view.getFullYear(), m = view.getMonth();
-  monthLabel.innerHTML = MONTHS[m] + ' <small>' + y + '</small><span class="caret">▾</span>';
-  syncJump();
+function buildMonthHTML(viewDate){
+  const y = viewDate.getFullYear(), m = viewDate.getMonth();
   const first = new Date(y,m,1).getDay();
   const total = daysInMonth(y,m);
   const todayKey = ymd(startOfToday());
@@ -1546,7 +1562,43 @@ function renderCalendar(){
     const selCls = (shareMode && selectedDays.has(dKey)) ? ' sel' : '';
     html += '<div class="cell'+(dKey===todayKey?' today':'')+selCls+'" data-date="'+dKey+'">'+inner+'</div>';
   }
-  calGrid.innerHTML = html;
+  return html;
+}
+function renderCalendar(){
+  const y = view.getFullYear(), m = view.getMonth();
+  monthLabel.innerHTML = MONTHS[m] + ' <small>' + y + '</small><span class="caret">▾</span>';
+  syncJump();
+  calGrid.innerHTML = buildMonthHTML(view);
+}
+/* animate a month change: current grid slides out, new month slides in */
+let calAnimating = false;
+function changeMonth(dir){   // dir: +1 next, -1 prev
+  if(calAnimating){ view = new Date(view.getFullYear(), view.getMonth()+dir, 1); renderCalendar(); return; }
+  const oldView = new Date(view);
+  view = new Date(view.getFullYear(), view.getMonth()+dir, 1);
+  const y=view.getFullYear(), m=view.getMonth();
+  monthLabel.innerHTML = MONTHS[m] + ' <small>' + y + '</small><span class="caret">▾</span>';
+  syncJump();
+  const incoming = document.createElement('div');
+  incoming.className = 'grid cal-incoming';
+  incoming.innerHTML = buildMonthHTML(view);
+  incoming.style.transform = 'translateX('+(dir>0?100:-100)+'%)';
+  const wrap = document.getElementById('gridWrap');
+  wrap.appendChild(incoming);
+  calAnimating = true;
+  void incoming.offsetWidth;
+  calGrid.style.transition = 'transform .26s ease';
+  incoming.style.transition = 'transform .26s ease';
+  calGrid.style.transform = 'translateX('+(dir>0?-100:100)+'%)';
+  incoming.style.transform = 'translateX(0)';
+  const done = ()=>{
+    calGrid.style.transition='none';
+    calGrid.style.transform='none';
+    calGrid.innerHTML = incoming.innerHTML;
+    incoming.remove();
+    calAnimating = false;
+  };
+  setTimeout(done, 280);
 }
 
 /* tap = day sheet; press & hold = full-screen day */
@@ -1590,6 +1642,8 @@ let swipeX=null, swipeY=null, swipeActive=false;
 const calPage = document.getElementById('page-cal');
 calPage.addEventListener('touchstart', e=>{
   if(shareMode || e.touches.length!==1){ swipeActive=false; return; }
+  /* don't hijack swipes that start inside the horizontally-scrollable filter row */
+  if(e.target.closest('#colorFilterBar')){ swipeActive=false; return; }
   swipeX = e.touches[0].clientX; swipeY = e.touches[0].clientY; swipeActive=true;
 }, {passive:true});
 calPage.addEventListener('touchend', e=>{
@@ -1599,14 +1653,12 @@ calPage.addEventListener('touchend', e=>{
   swipeActive=false; swipeX=swipeY=null;
   /* mostly-horizontal, far enough to count */
   if(Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)*1.6){
-    if(dx < 0) view = new Date(view.getFullYear(), view.getMonth()+1, 1);
-    else       view = new Date(view.getFullYear(), view.getMonth()-1, 1);
-    renderCalendar();
+    changeMonth(dx < 0 ? 1 : -1);
   }
 }, {passive:true});
 
-document.getElementById('prevBtn').onclick = ()=>{ view = new Date(view.getFullYear(), view.getMonth()-1, 1); renderCalendar(); };
-document.getElementById('nextBtn').onclick = ()=>{ view = new Date(view.getFullYear(), view.getMonth()+1, 1); renderCalendar(); };
+document.getElementById('prevBtn').onclick = ()=>{ changeMonth(-1); };
+document.getElementById('nextBtn').onclick = ()=>{ changeMonth(1); };
 document.getElementById('todayBtn').onclick = ()=>{ view = startOfToday(); renderCalendar(); };
 
 /* ---- month/year jump picker ---- */
@@ -1643,17 +1695,22 @@ function usedCustomColors(){
 }
 function renderFilterBar(){
   const bar = document.getElementById('filterBar');
-  let html = '<button class="pill" data-f="SHARE"><span class="lbl">⇪ Share</span></button>'+
-             '<button class="pill'+(data.showHolidays?'':' off')+'" data-f="HOLIDAYS">'+
-             '<span class="pdot" style="background:var(--hol)"></span><span class="lbl">Holidays</span></button>';
-  const keys = ['rec','one', ...usedCustomColors()];
-  for(const k of keys){
-    const off = isHiddenColor(k) ? ' off' : '';
-    html += '<button class="pill'+off+'" data-f="'+k+'">'+
-            '<span class="pdot" style="background:'+COLORS[k]+'"></span>'+
-            '<span class="lbl">'+esc(colorName(k))+'</span></button>';
+  if(bar) bar.innerHTML = '';   // everything now lives in the single scrollable row
+  const cbar = document.getElementById('colorFilterBar');
+  if(cbar){
+    let chtml = '<button class="pill" data-f="SHARE"><span class="lbl">⇪ Share</span></button>'+
+                '<button class="pill'+(data.showHolidays?'':' off')+'" data-f="HOLIDAYS">'+
+                '<span class="pdot" style="background:var(--hol)"></span><span class="lbl">Holidays</span></button>';
+    const keys = ['rec','one', ...usedCustomColors()];
+    for(const k of keys){
+      const off = isHiddenColor(k) ? ' off' : '';
+      chtml += '<button class="pill'+off+'" data-f="'+k+'">'+
+               '<span class="pdot" style="background:'+COLORS[k]+'"></span>'+
+               '<span class="lbl">'+esc(colorName(k))+'</span></button>';
+    }
+    cbar.innerHTML = chtml;
+    cbar.style.display = '';
   }
-  bar.innerHTML = html;
   /* list tab gets a colors-only filter (no Share/Holidays) */
   const lbar = document.getElementById('listFilterBar');
   if(lbar){
@@ -1677,6 +1734,19 @@ document.getElementById('listFilterBar').addEventListener('click', e=>{
   save(); renderAll();
 });
 document.getElementById('filterBar').addEventListener('click', e=>{
+  const pill = e.target.closest('.pill');
+  if(!pill) return;
+  const f = pill.dataset.f;
+  if(f==='SHARE'){ openShareMenu(); return; }
+  if(f==='HOLIDAYS'){
+    data.showHolidays = !data.showHolidays;
+  }else{
+    const i = data.hiddenColors.indexOf(f);
+    if(i>-1) data.hiddenColors.splice(i,1); else data.hiddenColors.push(f);
+  }
+  save(); renderAll();
+});
+document.getElementById('colorFilterBar').addEventListener('click', e=>{
   const pill = e.target.closest('.pill');
   if(!pill) return;
   const f = pill.dataset.f;
